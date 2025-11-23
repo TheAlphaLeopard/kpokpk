@@ -46,8 +46,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!m || m.direction !== 'from-extension') return;
             try{
               if (m.type === 'setTTS'){
-                // Accept either a Blob (preferred) or raw text (fallback).
-                if (m.blob){
+                // Accept either an ArrayBuffer (preferred), a Blob, or raw text (fallback).
+                if (m.arrayBuffer){
+                  console.log('Inpage received transferred arrayBuffer, mime=', m.mime, 'arrayBuffer instanceof ArrayBuffer=', m.arrayBuffer instanceof ArrayBuffer);
+                  try{
+                    if (!audioEl){
+                      audioEl = document.createElement('audio');
+                      audioEl.crossOrigin = 'anonymous';
+                      audioEl.style.display = 'none';
+                      document.body.appendChild(audioEl);
+                    }
+                    try{ if (audioEl._objectUrl) URL.revokeObjectURL(audioEl._objectUrl); }catch(e){}
+                    const blob = new Blob([m.arrayBuffer], { type: m.mime || 'audio/mpeg' });
+                    let objectUrl;
+                    try{
+                      objectUrl = URL.createObjectURL(blob);
+                    } catch (e){
+                      console.error('createObjectURL failed in page context', e, 'blob type=', blob.type);
+                      throw e;
+                    }
+                    audioEl._objectUrl = objectUrl;
+                    audioEl.src = objectUrl;
+                    audioEl.load();
+                    console.log('TTS audio element set from transferred ArrayBuffer, objectUrl=', objectUrl);
+                  } catch (e){ console.error('Failed to use transferred ArrayBuffer', e); }
+                } else if (m.blob){
+                  console.log('Inpage received m.blob, typeof=', typeof m.blob, 'm.blob instanceof Blob=', m.blob instanceof Blob);
                   if (!audioEl){
                     audioEl = document.createElement('audio');
                     audioEl.crossOrigin = 'anonymous';

@@ -46,7 +46,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const mime = resp.mime || 'audio/mpeg';
 
-          // Create Blob and do a quick canPlayType test before forwarding to page
+          // Create Blob for a quick canPlayType test, then transfer the ArrayBuffer to the page (transferable)
           const blob = new Blob([arr], { type: mime });
           try{
             const testAudio = document.createElement('audio');
@@ -56,20 +56,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             console.log('TTS blob mime:', mime, 'canPlayType =>', can);
             URL.revokeObjectURL(testUrl);
             if (!can){
-              console.warn('Browser reports it may not play this MIME type. Retrying with audio/mpeg fallback.');
-              // Try forcing audio/mpeg
-              const blob2 = new Blob([arr], { type: 'audio/mpeg' });
-              window.postMessage({ direction: 'from-extension', type: 'setTTS', blob: blob2 }, '*');
-              sendResponse({ ok: true, note: 'forwarded with fallback mime' });
-              return;
+              console.warn('Browser reports it may not play this MIME type. Will still attempt transfer.');
             }
           } catch (e){
             console.warn('TTS test playback check failed', e);
           }
 
-          // Forward the blob to the page; injected script will create an object URL from it.
-          window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*');
-          sendResponse({ ok: true });
+          // Ensure arr is an ArrayBuffer for transfer
+          let transferBuf = arr;
+          if (!(transferBuf instanceof ArrayBuffer)){
+            try{ transferBuf = (new Uint8Array(arr)).buffer; }catch(e){ transferBuf = arr.buffer || transferBuf; }
+          }
+
+          // Transfer the raw ArrayBuffer to the page; the injected script will build a Blob and object URL there.
+          try{
+            window.postMessage({ direction: 'from-extension', type: 'setTTS', arrayBuffer: transferBuf, mime }, '*', [transferBuf]);
+            sendResponse({ ok: true });
+          } catch (e){
+            // If transfer failed, fall back to posting a cloned blob (may fail on some pages)
+            console.warn('Transfer to page failed, falling back to posting blob:', e);
+            try{ window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*'); sendResponse({ ok: true }); }
+            catch(ex){ console.error('Final fallback posting blob failed', ex); sendResponse({ ok: false, error: String(ex) }); }
+          }
         } catch (e){
           console.error('Failed to forward TTS blob', e);
           sendResponse({ ok: false, error: String(e) });
@@ -86,8 +94,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try{
       const blob = msg.blob;
       if (!blob) return sendResponse({ ok: false, error: 'no blob' });
-      window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*');
-      sendResponse({ ok: true });
+      console.log('content_script setTTSBlob received, typeof blob=', typeof blob, 'instanceof Blob=', blob instanceof Blob);
+      // If it's a real Blob, use arrayBuffer(); if it's an object shape, try to reconstruct
+      const handleArrayBuffer = (ab, mime) => {
+        try{
+          window.postMessage({ direction: 'from-extension', type: 'setTTS', arrayBuffer: ab, mime: mime || 'audio/wav' }, '*', [ab]);
+          sendResponse({ ok: true });
+        } catch (e){
+          console.warn('Transfer to page failed for setTTSBlob, falling back to posting blob', e);
+          try{ window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*'); sendResponse({ ok: true }); }
+          catch(ex){ console.error('Final fallback posting blob failed', ex); sendResponse({ ok: false, error: String(ex) }); }
+        }
+      };
+
+      if (blob instanceof Blob && blob.arrayBuffer){
+        blob.arrayBuffer().then((ab) => handleArrayBuffer(ab, blob.type)).catch(e => { console.error('Failed to read blob.arrayBuffer()', e); sendResponse({ ok: false, error: String(e) }); });
+      } else if (blob && typeof blob === 'object'){
+        // Try common structured clone shapes
+        if (blob.data && blob.data instanceof ArrayBuffer){
+          handleArrayBuffer(blob.data, blob.type);
+        } else if (Array.isArray(blob)){
+          handleArrayBuffer((new Uint8Array(blob)).buffer, 'audio/wav');
+        } else {
+          try{
+            const vals = Object.keys(blob).map(k => blob[k]);
+            if (vals.length && typeof vals[0] === 'number'){
+              handleArrayBuffer((new Uint8Array(vals)).buffer, 'audio/wav');
+            } else {
+              console.error('Unrecognized blob-like object shape', blob);
+              sendResponse({ ok: false, error: 'unrecognized blob shape' });
+            }
+          } catch (e){ console.error('Failed to reconstruct blob arrayBuffer', e); sendResponse({ ok: false, error: String(e) }); }
+        }
+      } else {
+        sendResponse({ ok: false, error: 'unsupported blob type' });
+      }
     } catch (e){
       console.error('Failed to forward TTS blob from popup', e);
       sendResponse({ ok: false, error: String(e) });
