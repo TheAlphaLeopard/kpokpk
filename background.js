@@ -63,6 +63,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             })();
           }catch(e){ console.warn('TTS Virtual Mic: failed to wrap RTCPeerConnection', e); }
 
+          // Wrap RTCPeerConnection.prototype.addTrack to substitute any audio track
+          // with our TTS track when available. This forces the app to send TTS.
+          try{
+            if (!window.__pokpok_addTrack_wrapped && window.RTCPeerConnection && window.RTCPeerConnection.prototype){
+              const origAddTrack = window.RTCPeerConnection.prototype.addTrack;
+              window.RTCPeerConnection.prototype.addTrack = function(track, ...streams){
+                try{
+                  if (track && track.kind === 'audio'){
+                    const tts = (window.__pokpok_ttsStream && window.__pokpok_ttsStream.getAudioTracks) ? window.__pokpok_ttsStream.getAudioTracks()[0] : null;
+                    if (tts){
+                      console.log('TTS Virtual Mic: intercepting addTrack, substituting TTS track');
+                      return origAddTrack.call(this, tts, window.__pokpok_ttsStream);
+                    }
+                  }
+                }catch(e){ console.warn('TTS Virtual Mic: addTrack wrapper error', e); }
+                return origAddTrack.call(this, track, ...streams);
+              };
+              window.__pokpok_addTrack_wrapped = true;
+              console.log('TTS Virtual Mic: RTCPeerConnection.addTrack wrapped');
+            }
+          }catch(e){ console.warn('TTS Virtual Mic: failed to wrap addTrack', e); }
+
           let audioCtx = null;
           let audioEl = null;
           let elementSource = null;
@@ -151,6 +173,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 }catch(e){ console.warn('TTS Virtual Mic: error while renegotiating pc', e); }
               }
             }catch(e){ console.warn('TTS Virtual Mic: renegotiateWithTTS error', e); }
+          }
+
+          // expose ttsStream globally so prototype wrappers can access it
+          function publishTTSStream(){
+            try{ window.__pokpok_ttsStream = ttsStream; }catch(e){}
           }
 
           window.addEventListener('message', async (ev) => {
