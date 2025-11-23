@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "TTS Virtual Mic for Discord Web",
+  "version": "0.1",
+  "description": "Injects TTS audio as a MediaStream microphone into Discord Web (browser only).",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://discord.com/*", "https://translate.google.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TTS Virtual Mic"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://discord.com/*"],
+      "js": ["content_script.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

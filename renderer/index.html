@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>TTS Virtual Mic</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 16px; }
+      textarea { width: 100%; height: 80px; }
+      button { margin-top: 8px; padding: 8px 12px; }
+    </style>
+  </head>
+  <body>
+    <h3>TTS Virtual Microphone</h3>
+    <p>Enter text and click <strong>Speak</strong>. Select <code>TTS Microphone</code> (or <code>TTS_SINK.monitor</code>) as your Discord input device on Linux. On Windows follow the instructions shown below to route audio into a virtual cable.</p>
+    <div id="platformNote" style="margin-bottom:8px;color:#333"></div>
+    <textarea id="text">Hello from TTS virtual microphone.</textarea>
+    <div>
+      <button id="speak">Speak</button>
+    </div>
+    <hr style="margin-top:12px"/>
+    <h4>Settings (Windows)</h4>
+    <div>
+      <label>Device name (exact):</label>
+      <input id="deviceName" style="width:100%" placeholder="CABLE Input (VB-Audio Virtual Cable)" />
+    </div>
+    <div style="margin-top:6px">
+      <label>nircmd.exe path (optional):</label>
+      <input id="nircmdPath" style="width:100%" placeholder="C:\\tools\\nircmd.exe" />
+    </div>
+    <div style="margin-top:6px">
+      <label><input type="checkbox" id="autoSet" /> Automatically set default playback device before speaking (requires nircmd)</label>
+    </div>
+    <div style="margin-top:6px">
+      <button id="saveSettings">Save Settings</button>
+      <span id="saveStatus" style="margin-left:8px;color:green"></span>
+    </div>
+    <div style="margin-top:6px">
+      <button id="testNircmd">Test nircmd (set device now)</button>
+      <span id="testStatus" style="margin-left:8px;color:blue"></span>
+    </div>
+    <div id="status" style="margin-top:10px;color:green"></div>
+    <script src="renderer.js"></script>
+  </body>
+</html>

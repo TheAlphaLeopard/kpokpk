@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TTS Virtual Mic</title>
+    <style>
+      body { font-family: Arial, sans-serif; width: 360px; padding: 12px; }
+      textarea { width: 100%; height: 100px; }
+      button { margin-top: 8px; padding: 6px 10px; }
+      .row { margin-top:8px }
+    </style>
+  </head>
+  <body>
+    <h3>TTS Virtual Mic (Discord Web)</h3>
+    <div>
+      <label for="text">Text to speak</label>
+      <textarea id="text">Hello from TTS Virtual Mic.</textarea>
+    </div>
+    <div class="row">
+      <button id="set">Use as mic (set audio)</button>
+      <button id="play">Speak now</button>
+    </div>
+    <div class="row">
+      <small>Note: load this extension unpacked and open Discord Web (https://discord.com/app). Reload the page after installing.</small>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
