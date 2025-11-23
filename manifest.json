@@ -9,6 +9,9 @@
     "default_popup": "popup.html",
     "default_title": "TTS Virtual Mic"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["https://discord.com/*"],
