@@ -77,6 +77,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     audioEl.src = objectUrl;
                     audioEl.load();
                     console.log('TTS audio element set from transferred ArrayBuffer, objectUrl=', objectUrl);
+                    // Prepare audio context and media stream destination immediately to avoid race with getUserMedia
+                    try{
+                      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                      if (!destination){
+                        destination = audioCtx.createMediaStreamDestination();
+                        ttsStream = destination.stream;
+                      }
+                      if (!elementSource){
+                        try{
+                          elementSource = audioCtx.createMediaElementSource(audioEl);
+                          elementSource.connect(destination);
+                        } catch (e){
+                          console.warn('createMediaElementSource failed during setTTS (arrayBuffer)', e);
+                        }
+                      }
+                      console.log('TTS Virtual Mic: prepared audioCtx/destination on setTTS (arrayBuffer)');
+                    } catch (e){ console.warn('Failed to prepare audio context on setTTS (arrayBuffer)', e); }
                   } catch (e){ console.error('Failed to use transferred ArrayBuffer', e); }
                 } else if (m.blob){
                   console.log('Inpage received m.blob, typeof=', typeof m.blob, 'm.blob instanceof Blob=', m.blob instanceof Blob);
@@ -94,6 +111,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   audioEl.src = objectUrl;
                   audioEl.load();
                   console.log('TTS audio element set from blob');
+                  try{
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (!destination){
+                      destination = audioCtx.createMediaStreamDestination();
+                      ttsStream = destination.stream;
+                    }
+                    if (!elementSource){
+                      try{
+                        elementSource = audioCtx.createMediaElementSource(audioEl);
+                        elementSource.connect(destination);
+                      } catch (e){
+                        console.warn('createMediaElementSource failed during setTTS (blob)', e);
+                      }
+                    }
+                    console.log('TTS Virtual Mic: prepared audioCtx/destination on setTTS (blob)');
+                  } catch (e){ console.warn('Failed to prepare audio context on setTTS (blob)', e); }
                 } else {
                   const text = m.text || '';
                   if (!text) return;
@@ -108,6 +141,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   audioEl.src = url;
                   audioEl.load();
                   console.log('TTS audio element set src', url);
+                  try{
+                    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (!destination){
+                      destination = audioCtx.createMediaStreamDestination();
+                      ttsStream = destination.stream;
+                    }
+                    if (!elementSource){
+                      try{
+                        elementSource = audioCtx.createMediaElementSource(audioEl);
+                        elementSource.connect(destination);
+                      } catch (e){
+                        console.warn('createMediaElementSource failed during setTTS (text URL)', e);
+                      }
+                    }
+                    console.log('TTS Virtual Mic: prepared audioCtx/destination on setTTS (text URL)');
+                  } catch (e){ console.warn('Failed to prepare audio context on setTTS (text URL)', e); }
                 }
               } else if (m.type === 'playTTS'){
                 if (!audioEl) return console.warn('No audio element prepared');
