@@ -51,6 +51,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           let currentSource = null; // current AudioBufferSourceNode
           const _pokpok_fake_device_id = 'pokpok-tts-virtual-device';
 
+          // Ensure an AudioContext + MediaStreamDestination + tiny keeper oscillator
+          // are created early so pages calling getUserMedia will receive a live track
+          // even if no TTS audio has been set yet. This avoids negotiation races
+          // where WebRTC reports 0 audio SSRCs.
+          function ensureDestination(){
+            try{
+              if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+              if (!destination){
+                destination = audioCtx.createMediaStreamDestination();
+                ttsStream = destination.stream;
+                try{
+                  if (!keeperOsc){
+                    keeperOsc = audioCtx.createOscillator();
+                    keeperGain = audioCtx.createGain();
+                    keeperGain.gain.value = 0.00001;
+                    keeperOsc.type = 'sine';
+                    keeperOsc.frequency.value = 440;
+                    keeperOsc.connect(keeperGain);
+                    keeperGain.connect(destination);
+                    try{ keeperOsc.start(); }catch(e){}
+                    console.log('TTS Virtual Mic: keeper oscillator started at injection to keep track live');
+                  }
+                }catch(e){ console.warn('TTS Virtual Mic: keeper setup failed', e); }
+              }
+            }catch(e){ console.warn('TTS Virtual Mic: ensureDestination failed', e); }
+          }
+
           window.addEventListener('message', async (ev) => {
             const m = ev.data;
             if (!m || m.direction !== 'from-extension') return;
