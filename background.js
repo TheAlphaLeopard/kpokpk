@@ -18,6 +18,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           let elementSource = null;
           let destination = null;
           let ttsStream = null;
+          const _pokpok_fake_device_id = 'pokpok-tts-virtual-device';
 
           window.addEventListener('message', async (ev) => {
             const m = ev.data;
@@ -63,18 +64,53 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           });
 
           try{
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-              const origGet = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-              navigator.mediaDevices.getUserMedia = async function(constraints){
-                const wantsAudio = constraints && (constraints.audio === true || typeof constraints.audio === 'object');
-                if (wantsAudio && ttsStream){
-                  return ttsStream;
-                }
-                return origGet(constraints);
-              };
-              console.log('TTS Virtual Mic: navigator.mediaDevices.getUserMedia overridden');
+            if (navigator.mediaDevices){
+              // Override enumerateDevices to advertise a fake audio input named "pokpok tts".
+              try{
+                const origEnumerate = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+                navigator.mediaDevices.enumerateDevices = async function(){
+                  const devices = await origEnumerate();
+                  try{
+                    devices.push({
+                      deviceId: _pokpok_fake_device_id,
+                      kind: 'audioinput',
+                      label: 'pokpok tts',
+                      groupId: ''
+                    });
+                  }catch(e){ /* ignore if device list is frozen */ }
+                  return devices;
+                };
+                console.log('TTS Virtual Mic: enumerateDevices overridden');
+              } catch (e){ console.warn('Could not override enumerateDevices', e); }
+
+              if (navigator.mediaDevices.getUserMedia){
+                const origGet = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                navigator.mediaDevices.getUserMedia = async function(constraints){
+                  const wantsAudio = constraints && (constraints.audio === true || typeof constraints.audio === 'object');
+                  let requestedDeviceId = null;
+                  if (wantsAudio && typeof constraints.audio === 'object'){
+                    const dev = constraints.audio.deviceId;
+                    if (dev){
+                      if (typeof dev === 'string') requestedDeviceId = dev;
+                      else if (typeof dev === 'object' && (dev.exact || dev.ideal)) requestedDeviceId = dev.exact || dev.ideal;
+                    }
+                  }
+
+                  // If the page explicitly requests the fake device, or wants audio but didn't request a different device,
+                  // return our TTS MediaStream when available.
+                  if (wantsAudio && (requestedDeviceId === _pokpok_fake_device_id || requestedDeviceId === null)){
+                    if (ttsStream){
+                      console.log('TTS Virtual Mic: returning TTS stream for getUserMedia', requestedDeviceId);
+                      return ttsStream;
+                    }
+                  }
+                  return origGet(constraints);
+                };
+                console.log('TTS Virtual Mic: navigator.mediaDevices.getUserMedia overridden');
+              }
             }
-          } catch (e){ console.warn('Could not override getUserMedia', e); }
+          } catch (e){ console.warn('Could not override mediaDevices APIs', e); }
+
         })();
       }
     }).then(()=> sendResponse({ ok: true })).catch(err => sendResponse({ ok: false, error: String(err) }));
