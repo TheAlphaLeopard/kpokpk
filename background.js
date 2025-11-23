@@ -49,6 +49,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           let ttsStream = null;
           let ttsAudioBuffer = null; // decoded AudioBuffer for reliable playback
           let currentSource = null; // current AudioBufferSourceNode
+          let keeperOsc = null; // silent oscillator to keep destination live
+          let keeperGain = null;
           const _pokpok_fake_device_id = 'pokpok-tts-virtual-device';
 
           window.addEventListener('message', async (ev) => {
@@ -66,7 +68,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                       audioEl.style.display = 'none';
                       document.body.appendChild(audioEl);
                     }
-                    try{ if (audioEl._objectUrl) URL.revokeObjectURL(audioEl._objectUrl); }catch(e){}
+                      try{
+                        // don't revoke immediately; schedule a delayed revoke to avoid other parts
+                        // of the page trying to load the blob too soon and getting ERR_FILE_NOT_FOUND
+                        if (audioEl._objectUrl){
+                          const old = audioEl._objectUrl;
+                          setTimeout(() => {
+                            try{ URL.revokeObjectURL(old); }catch(e){}
+                          }, 30 * 1000);
+                        }
+                      }catch(e){}
                     const blob = new Blob([m.arrayBuffer], { type: m.mime || 'audio/mpeg' });
                     let objectUrl;
                     try{
@@ -77,6 +88,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     }
                     audioEl._objectUrl = objectUrl;
                     audioEl.src = objectUrl;
+                      audioEl.preload = 'auto';
+                      audioEl.autoplay = false;
                     audioEl.load();
                     console.log('TTS audio element set from transferred ArrayBuffer, objectUrl=', objectUrl);
                     // Prepare audio context, decode ArrayBuffer into AudioBuffer and create destination
@@ -86,6 +99,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         destination = audioCtx.createMediaStreamDestination();
                         ttsStream = destination.stream;
                         try{
+                          // create a very quiet oscillator to keep the track live so WebRTC will include audio SSRC
+                          if (!keeperOsc){
+                            keeperOsc = audioCtx.createOscillator();
+                            keeperGain = audioCtx.createGain();
+                            keeperGain.gain.value = 0.00001; // near-silent
+                            keeperOsc.type = 'sine';
+                            keeperOsc.frequency.value = 440;
+                            keeperOsc.connect(keeperGain);
+                            keeperGain.connect(destination);
+                            try{ keeperOsc.start(); }catch(e){}
+                            console.log('TTS Virtual Mic: keeper oscillator started to keep track live');
+                          }
                           const tracks = ttsStream.getAudioTracks() || [];
                           tracks.forEach(t=>{ try{ t.enabled = true; }catch(e){} });
                           console.log('TTS Virtual Mic: destination created, audio tracks=', tracks.length);
@@ -120,12 +145,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     audioEl.style.display = 'none';
                     document.body.appendChild(audioEl);
                   }
-                  try{
-                    if (audioEl._objectUrl) URL.revokeObjectURL(audioEl._objectUrl);
-                  }catch(e){}
                   const objectUrl = URL.createObjectURL(m.blob);
                   audioEl._objectUrl = objectUrl;
                   audioEl.src = objectUrl;
+                    audioEl.preload = 'auto';
+                    audioEl.autoplay = false;
                   audioEl.load();
                   console.log('TTS audio element set from blob');
                   try{
@@ -133,13 +157,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     if (!destination){
                       destination = audioCtx.createMediaStreamDestination();
                       ttsStream = destination.stream;
-                      try{ const tracks = ttsStream.getAudioTracks() || []; tracks.forEach(t=>{ try{ t.enabled = true; }catch(e){} }); console.log('TTS Virtual Mic: destination created (blob), audio tracks=', (ttsStream.getAudioTracks()||[]).length); }catch(e){}
+                      try{
+                        if (!keeperOsc){
+                          keeperOsc = audioCtx.createOscillator();
+                          keeperGain = audioCtx.createGain();
+                          keeperGain.gain.value = 0.00001;
+                          keeperOsc.type = 'sine';
+                          keeperOsc.frequency.value = 440;
+                          keeperOsc.connect(keeperGain);
+                          keeperGain.connect(destination);
+                          try{ keeperOsc.start(); }catch(e){}
+                        }
+                        const tracks = ttsStream.getAudioTracks() || [];
+                        tracks.forEach(t=>{ try{ t.enabled = true; }catch(e){} });
+                        console.log('TTS Virtual Mic: destination created (blob), audio tracks=', (ttsStream.getAudioTracks()||[]).length);
+                      }catch(e){}
                     }
                     // Try to decode blob to AudioBuffer for reliable routing
-                    try{
+                            try{
+                              if (audioEl._objectUrl){
+                                const old = audioEl._objectUrl;
+                                setTimeout(() => { try{ URL.revokeObjectURL(old); }catch(e){} }, 30 * 1000);
+                              }
+                            }catch(e){}
                       const ab = await m.blob.arrayBuffer();
                       ttsAudioBuffer = await audioCtx.decodeAudioData(ab).catch(err => { throw err; });
                       console.log('TTS Virtual Mic: decoded AudioBuffer from blob');
+                            audioEl.preload = 'auto';
+                            audioEl.autoplay = false;
                     } catch (e){
                       console.warn('decodeAudioData from blob failed, using media element fallback', e);
                     }
@@ -149,10 +194,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         elementSource.connect(destination);
                       } catch (e){
                         console.warn('createMediaElementSource failed during setTTS (blob)', e);
-                      }
+                        try{
+                          if (audioEl._objectUrl){
+                            const old = audioEl._objectUrl;
+                            setTimeout(() => { try{ URL.revokeObjectURL(old); }catch(e){} }, 30 * 1000);
+                          }
+                        }catch(e){}
                     }
                     console.log('TTS Virtual Mic: prepared audioCtx/destination on setTTS (blob)');
                   } catch (e){ console.warn('Failed to prepare audio context on setTTS (blob)', e); }
+                        audioEl.preload = 'auto';
+                        audioEl.autoplay = false;
                 } else {
                   const text = m.text || '';
                   if (!text) return;
@@ -172,6 +224,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     if (!destination){
                       destination = audioCtx.createMediaStreamDestination();
                       ttsStream = destination.stream;
+                      try{
+                        if (!keeperOsc){
+                          keeperOsc = audioCtx.createOscillator();
+                          keeperGain = audioCtx.createGain();
+                          keeperGain.gain.value = 0.00001;
+                          keeperOsc.type = 'sine';
+                          keeperOsc.frequency.value = 440;
+                          keeperOsc.connect(keeperGain);
+                          keeperGain.connect(destination);
+                          try{ keeperOsc.start(); }catch(e){}
+                        }
+                      }catch(e){}
                     }
                     if (!elementSource){
                       try{
