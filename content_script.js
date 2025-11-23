@@ -21,9 +21,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         try{
-          const arr = resp.data; // ArrayBuffer
+          let arr = resp.data; // expected ArrayBuffer
+          const origType = typeof arr;
+
+          // Normalize possible shapes (structured clone may vary across contexts)
+          if (arr && typeof arr === 'object' && !(arr instanceof ArrayBuffer)){
+            // If it's a Uint8Array-like (has data or numeric keys), try to build an ArrayBuffer
+            if (arr.data && arr.data instanceof ArrayBuffer){
+              arr = arr.data;
+            } else if (Array.isArray(arr)){
+              arr = (new Uint8Array(arr)).buffer;
+            } else {
+              // attempt to convert object with numeric keys
+              try{
+                const vals = Object.keys(arr).map(k => arr[k]);
+                if (vals.length && typeof vals[0] === 'number') arr = (new Uint8Array(vals)).buffer;
+              }catch(e){}
+            }
+          }
+
+          if (!(arr instanceof ArrayBuffer)){
+            console.warn('TTS response data not an ArrayBuffer (type:', origType, '). Attempting fallback.');
+          }
+
           const mime = resp.mime || 'audio/mpeg';
+
+          // Create Blob and do a quick canPlayType test before forwarding to page
           const blob = new Blob([arr], { type: mime });
+          try{
+            const testAudio = document.createElement('audio');
+            const testUrl = URL.createObjectURL(blob);
+            testAudio.src = testUrl;
+            const can = testAudio.canPlayType(mime || 'audio/mpeg');
+            console.log('TTS blob mime:', mime, 'canPlayType =>', can);
+            URL.revokeObjectURL(testUrl);
+            if (!can){
+              console.warn('Browser reports it may not play this MIME type. Retrying with audio/mpeg fallback.');
+              // Try forcing audio/mpeg
+              const blob2 = new Blob([arr], { type: 'audio/mpeg' });
+              window.postMessage({ direction: 'from-extension', type: 'setTTS', blob: blob2 }, '*');
+              sendResponse({ ok: true, note: 'forwarded with fallback mime' });
+              return;
+            }
+          } catch (e){
+            console.warn('TTS test playback check failed', e);
+          }
+
           // Forward the blob to the page; injected script will create an object URL from it.
           window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*');
           sendResponse({ ok: true });
