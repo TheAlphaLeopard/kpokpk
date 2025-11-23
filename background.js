@@ -1,6 +1,27 @@
 // Background service worker: inject in-page code into the tab's main world.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
+
+  // Background fetch for TTS audio (content_script will forward blob to the page)
+  if (msg.type === 'fetchTTS'){
+    (async () => {
+      try{
+        const text = msg.text || '';
+        if (!text) return sendResponse({ ok: false, error: 'No text' });
+        const q = encodeURIComponent(text);
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&client=tw-ob`;
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok) throw new Error('TTS fetch failed: ' + res.status);
+        const buf = await res.arrayBuffer();
+        const mime = res.headers.get('content-type') || 'audio/mpeg';
+        sendResponse({ ok: true, data: buf, mime });
+      } catch (e){
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'ensureInjected'){
     const tabId = sender.tab && sender.tab.id;
     if (!tabId) return;
@@ -25,19 +46,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!m || m.direction !== 'from-extension') return;
             try{
               if (m.type === 'setTTS'){
-                const text = m.text || '';
-                if (!text) return;
-                const q = encodeURIComponent(text);
-                const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&client=tw-ob`;
-                if (!audioEl){
-                  audioEl = document.createElement('audio');
-                  audioEl.crossOrigin = 'anonymous';
-                  audioEl.style.display = 'none';
-                  document.body.appendChild(audioEl);
+                // Accept either a Blob (preferred) or raw text (fallback).
+                if (m.blob){
+                  if (!audioEl){
+                    audioEl = document.createElement('audio');
+                    audioEl.crossOrigin = 'anonymous';
+                    audioEl.style.display = 'none';
+                    document.body.appendChild(audioEl);
+                  }
+                  try{
+                    if (audioEl._objectUrl) URL.revokeObjectURL(audioEl._objectUrl);
+                  }catch(e){}
+                  const objectUrl = URL.createObjectURL(m.blob);
+                  audioEl._objectUrl = objectUrl;
+                  audioEl.src = objectUrl;
+                  audioEl.load();
+                  console.log('TTS audio element set from blob');
+                } else {
+                  const text = m.text || '';
+                  if (!text) return;
+                  const q = encodeURIComponent(text);
+                  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&client=tw-ob`;
+                  if (!audioEl){
+                    audioEl = document.createElement('audio');
+                    audioEl.crossOrigin = 'anonymous';
+                    audioEl.style.display = 'none';
+                    document.body.appendChild(audioEl);
+                  }
+                  audioEl.src = url;
+                  audioEl.load();
+                  console.log('TTS audio element set src', url);
                 }
-                audioEl.src = url;
-                audioEl.load();
-                console.log('TTS audio element set src', url);
               } else if (m.type === 'playTTS'){
                 if (!audioEl) return console.warn('No audio element prepared');
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
