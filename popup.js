@@ -44,9 +44,9 @@ document.getElementById('test').addEventListener('click', async ()=>{
   const tabId = tabs[0].id;
 
   try{
-    const url = chrome.runtime.getURL('download.wav');
+    const url = 'https://pok.on.websim.com/download.wav';
     const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch download.wav: ' + res.status);
+    if (!res.ok) throw new Error('Failed to fetch remote download.wav: ' + res.status);
     const ab = await res.arrayBuffer();
     // convert to base64 to safely send via chrome messaging
     const bytes = new Uint8Array(ab);
