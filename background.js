@@ -85,6 +85,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                       if (!destination){
                         destination = audioCtx.createMediaStreamDestination();
                         ttsStream = destination.stream;
+                        try{
+                          const tracks = ttsStream.getAudioTracks() || [];
+                          tracks.forEach(t=>{ try{ t.enabled = true; }catch(e){} });
+                          console.log('TTS Virtual Mic: destination created, audio tracks=', tracks.length);
+                        }catch(e){ console.warn('TTS Virtual Mic: could not inspect destination stream', e); }
                       }
                       // Decode into AudioBuffer for reliable playback and routing into destination
                       try{
@@ -128,6 +133,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     if (!destination){
                       destination = audioCtx.createMediaStreamDestination();
                       ttsStream = destination.stream;
+                      try{ const tracks = ttsStream.getAudioTracks() || []; tracks.forEach(t=>{ try{ t.enabled = true; }catch(e){} }); console.log('TTS Virtual Mic: destination created (blob), audio tracks=', (ttsStream.getAudioTracks()||[]).length); }catch(e){}
                     }
                     // Try to decode blob to AudioBuffer for reliable routing
                     try{
@@ -201,6 +207,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     try{ currentSource.connect(audioCtx.destination); } catch(e){}
                     currentSource.start(0);
                     console.log('Playing TTS audio buffer via AudioBufferSourceNode');
+                    try{ const tracks = (ttsStream && ttsStream.getAudioTracks()) || []; console.log('TTS Virtual Mic: stream tracks after start=', tracks.length, tracks.map(t => ({ id: t.id, enabled: t.enabled, readyState: t.readyState }))); }catch(e){}
                   } catch (e){
                     console.warn('failed to play buffer source, falling back to media element', e);
                     try{ await audioEl.play(); console.log('Playing TTS audio element fallback'); } catch(err){ console.warn('audioEl.play() fallback failed', err); }
@@ -218,6 +225,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   try{
                     await audioEl.play();
                     console.log('Playing TTS audio element');
+                    try{ const tracks = (ttsStream && ttsStream.getAudioTracks()) || []; console.log('TTS Virtual Mic: stream tracks after element play=', tracks.length, tracks.map(t => ({ id: t.id, enabled: t.enabled, readyState: t.readyState }))); }catch(e){}
                   } catch (e){
                     console.warn('audioEl.play() failed, user interaction may be required', e);
                   }
@@ -248,6 +256,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
               if (navigator.mediaDevices.getUserMedia){
                 const origGet = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                // Resume audio context on first user gesture to satisfy autoplay policies
+                const _resumeOnGesture = async () => {
+                  try{ if (audioCtx && audioCtx.state === 'suspended') { await audioCtx.resume(); console.log('TTS Virtual Mic: audioCtx resumed via user gesture'); } }catch(e){}
+                  document.removeEventListener('click', _resumeOnGesture);
+                  document.removeEventListener('keydown', _resumeOnGesture);
+                };
+                document.addEventListener('click', _resumeOnGesture);
+                document.addEventListener('keydown', _resumeOnGesture);
+
                 navigator.mediaDevices.getUserMedia = async function(constraints){
                   const wantsAudio = constraints && (constraints.audio === true || typeof constraints.audio === 'object');
                   let requestedDeviceId = null;
@@ -263,8 +280,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   // return our TTS MediaStream when available.
                   if (wantsAudio && (requestedDeviceId === _pokpok_fake_device_id || requestedDeviceId === null)){
                     if (ttsStream){
-                      console.log('TTS Virtual Mic: returning TTS stream for getUserMedia', requestedDeviceId);
-                      return ttsStream;
+                      try{
+                        // Ensure tracks are enabled and return a cloned MediaStream containing the tracks
+                        const tracks = ttsStream.getAudioTracks() || [];
+                        tracks.forEach(t => { try{ t.enabled = true; }catch(e){} });
+                        const cloned = new MediaStream(tracks);
+                        console.log('TTS Virtual Mic: returning cloned TTS stream for getUserMedia', requestedDeviceId, 'tracks=', tracks.length);
+                        return cloned;
+                      }catch(e){
+                        console.warn('TTS Virtual Mic: failed to clone ttsStream, returning original', e);
+                        return ttsStream;
+                      }
                     }
                   }
                   return origGet(constraints);
