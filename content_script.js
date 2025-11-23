@@ -21,7 +21,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         try{
-          let arr = resp.data; // expected ArrayBuffer
+          // expected ArrayBuffer or base64 string (dataBase64)
+          let arr = resp.data;
+          if (!arr && resp.dataBase64){
+            // decode base64 to ArrayBuffer
+            const b64 = resp.dataBase64;
+            const binary = atob(b64);
+            const len = binary.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+            arr = bytes.buffer;
+          }
           const origType = typeof arr;
 
           // Normalize possible shapes (structured clone may vary across contexts)
@@ -133,6 +143,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.error('Failed to forward TTS blob from popup', e);
       sendResponse({ ok: false, error: String(e) });
     }
+    return true;
+  }
+  if (msg.type === 'setTTSBase64'){
+    try{
+      const b64 = msg.dataBase64;
+      const mime = msg.mime || 'audio/wav';
+      if (!b64) return sendResponse({ ok: false, error: 'no dataBase64' });
+      const binary = atob(b64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+      const ab = bytes.buffer;
+      try{
+        window.postMessage({ direction: 'from-extension', type: 'setTTS', arrayBuffer: ab, mime }, '*', [ab]);
+        sendResponse({ ok: true });
+      } catch (e){
+        console.warn('Transfer to page failed for setTTSBase64, falling back to posting blob', e);
+        try{ const blob = new Blob([ab], { type: mime }); window.postMessage({ direction: 'from-extension', type: 'setTTS', blob }, '*'); sendResponse({ ok: true }); }
+        catch(ex){ console.error('Final fallback posting blob failed', ex); sendResponse({ ok: false, error: String(ex) }); }
+      }
+    } catch (e){ console.error('Failed to handle setTTSBase64', e); sendResponse({ ok: false, error: String(e) }); }
     return true;
   }
   if (msg.type === 'playTTS'){

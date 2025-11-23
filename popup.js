@@ -47,9 +47,17 @@ document.getElementById('test').addEventListener('click', async ()=>{
     const url = chrome.runtime.getURL('download.wav');
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to fetch download.wav: ' + res.status);
-    const blob = await res.blob();
-    chrome.tabs.sendMessage(tabId, { type: 'setTTSBlob', blob }, (resp) => {
-      if (chrome.runtime.lastError) console.warn('setTTSBlob error', chrome.runtime.lastError.message);
+    const ab = await res.arrayBuffer();
+    // convert to base64 to safely send via chrome messaging
+    const bytes = new Uint8Array(ab);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes.subarray(i, i + chunkSize)));
+    }
+    const b64 = btoa(binary);
+    chrome.tabs.sendMessage(tabId, { type: 'setTTSBase64', dataBase64: b64, mime: 'audio/wav' }, (resp) => {
+      if (chrome.runtime.lastError) console.warn('setTTSBase64 error', chrome.runtime.lastError.message);
       setTimeout(() => {
         chrome.tabs.sendMessage(tabId, { type: 'playTTS' }, (r2) => {
           if (chrome.runtime.lastError) console.warn('playTTS error:', chrome.runtime.lastError.message);

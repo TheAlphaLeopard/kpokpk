@@ -14,7 +14,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (!res.ok) throw new Error('TTS fetch failed: ' + res.status);
         const buf = await res.arrayBuffer();
         const mime = res.headers.get('content-type') || 'audio/mpeg';
-        sendResponse({ ok: true, data: buf, mime });
+        // encode to base64 to avoid structured-clone ArrayBuffer issues across extension messaging
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes.subarray(i, i + chunkSize)));
+        }
+        const b64 = btoa(binary);
+        sendResponse({ ok: true, dataBase64: b64, mime });
       } catch (e){
         sendResponse({ ok: false, error: String(e) });
       }
