@@ -8,24 +8,19 @@
 })();
 
 // Listen for messages from popup
-chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
   if (msg.type === 'setTTS'){
-    // fetch TTS audio and forward to inpage via postMessage
+    // Forward the text to the in-page script; in-page will create an <audio> element
     try{
       const text = msg.text || '';
-      const q = encodeURIComponent(text);
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${q}&tl=en&client=tw-ob`;
-      const res = await fetch(url, { method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const ab = await res.arrayBuffer();
-      // post to page context; use structured clone transfer
-      window.postMessage({ direction: 'from-extension', type: 'setTTS', audioBuffer: ab }, '*', [ab]);
+      window.postMessage({ direction: 'from-extension', type: 'setTTS', text }, '*');
       sendResponse({ ok: true });
     } catch (e){
-      console.error('Failed to fetch TTS', e);
+      console.error('Failed to forward TTS text', e);
       sendResponse({ ok: false, error: String(e) });
     }
-    return true; // will respond asynchronously
+    return true;
   }
   if (msg.type === 'playTTS'){
     window.postMessage({ direction: 'from-extension', type: 'playTTS' }, '*');
